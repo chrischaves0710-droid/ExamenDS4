@@ -1,13 +1,15 @@
-import { crearEquipo, obtenerCategorias } from '../modules/equipos.js';
-import { ErrorApi } from '../modules/api.js';
-import { cargarListado } from './listado.js';
+import { crearEquipo, listarCategorias } from "../modules/equipos.js";
+import { ErrorApi } from "../modules/errores.js";
+import { mostrarMensaje } from "./mensajes.js";
 
 let iniciado = false;
 
 function limpiarErrores(formulario) {
-  formulario.querySelectorAll('[data-error]').forEach(nodo => { nodo.textContent = ''; });
-  formulario.querySelectorAll('[aria-invalid]').forEach(campo => {
-    campo.removeAttribute('aria-invalid');
+  formulario.querySelectorAll("[data-error]").forEach(parrafo => {
+    parrafo.textContent = "";
+  });
+  formulario.querySelectorAll("[aria-invalid]").forEach(campo => {
+    campo.removeAttribute("aria-invalid");
   });
 }
 
@@ -15,61 +17,60 @@ function mostrarErrores(formulario, errores) {
   for (const [nombre, mensajes] of Object.entries(errores)) {
     const campo = formulario.elements.namedItem(nombre);
     const parrafo = formulario.querySelector(`[data-error="${nombre}"]`);
-    if (campo?.setAttribute) campo.setAttribute('aria-invalid', 'true');
-    if (parrafo) parrafo.textContent = Array.isArray(mensajes) ? mensajes.join(' ') : String(mensajes);
+    if (campo) campo.setAttribute("aria-invalid", "true");
+    if (parrafo) parrafo.textContent = Array.isArray(mensajes) ? mensajes.join(" ") : String(mensajes);
   }
 }
 
 async function cargarCategorias(formulario) {
-  const select = formulario.elements.namedItem('categoria_id');
-  if (!select) return;
+  const select = formulario.elements.namedItem("categoria_id");
   try {
-    const respuesta = await obtenerCategorias();
-    select.replaceChildren(new Option('Seleccione una categoría', ''));
-    for (const categoria of respuesta.data || []) {
+    const respuesta = await listarCategorias();
+    select.replaceChildren(new Option("Seleccione…", ""));
+    for (const categoria of respuesta.data ?? []) {
       select.append(new Option(categoria.nombre, String(categoria.id)));
     }
   } catch (error) {
-    const mensaje = document.querySelector('#mensaje-formulario');
-    if (mensaje) mensaje.textContent = `No se cargaron las categorías: ${error.message}`;
+    mostrarMensaje("error", `No se pudieron cargar las categorías: ${error.message}`);
   }
 }
 
-export function iniciarFormulario() {
+// main.js proporciona el callback para actualizar el listado tras guardar.
+export function iniciarFormulario({ alGuardar } = {}) {
   if (iniciado) return;
-  const formulario = document.querySelector('#form-equipo');
-  if (!formulario) return;
   iniciado = true;
-  const boton = formulario.querySelector('[type="submit"]');
-  const mensaje = document.querySelector('#mensaje-formulario');
+
+  const formulario = document.querySelector("#form-equipo");
+  const boton = document.querySelector("#btn-guardar");
   cargarCategorias(formulario);
 
-  formulario.addEventListener('submit', async evento => {
+  formulario.addEventListener("submit", async evento => {
     evento.preventDefault();
     limpiarErrores(formulario);
-    if (mensaje) mensaje.textContent = '';
+
     const datos = Object.fromEntries(new FormData(formulario).entries());
-    datos.categoria_id = Number(datos.categoria_id);
-    datos.costo_interno = Number(datos.costo_interno);
-    if (!datos.estado) delete datos.estado;
-    const etiqueta = boton?.textContent;
-    if (boton) { boton.disabled = true; boton.textContent = 'Guardando…'; }
+    datos.categoria_id = datos.categoria_id === "" ? null : Number(datos.categoria_id);
+    datos.costo_interno = datos.costo_interno === "" ? null : Number(datos.costo_interno);
+
+    const textoOriginal = boton.textContent;
+    boton.disabled = true;
+    boton.textContent = "Guardando…";
+
     try {
       await crearEquipo(datos);
       formulario.reset();
-      if (mensaje) mensaje.textContent = 'Equipo guardado correctamente.';
-      await cargarListado(1);
+      mostrarMensaje("exito", "Equipo registrado correctamente.");
+      await alGuardar?.();
     } catch (error) {
       if (error instanceof ErrorApi && error.status === 422) {
-        mostrarErrores(formulario, error.errores);
-        if (mensaje) mensaje.textContent = 'Revise los campos señalados.';
-      } else if (mensaje) {
-        mensaje.textContent = error.message;
+        mostrarErrores(formulario, error.datos.errors ?? {});
+        mostrarMensaje("error", "Revise los campos señalados.");
+      } else {
+        mostrarMensaje("error", error.message);
       }
     } finally {
-      if (boton) { boton.disabled = false; boton.textContent = etiqueta; }
+      boton.disabled = false;
+      boton.textContent = textoOriginal;
     }
   });
 }
-
-export default iniciarFormulario;

@@ -1,104 +1,123 @@
-import { listarEquipos, eliminarEquipo } from '../modules/equipos.js';
-import { ErrorApi } from '../modules/api.js';
+import { listarEquipos, eliminarEquipo } from "../modules/equipos.js";
+import { ErrorApi } from "../modules/errores.js";
+import { mostrarMensaje } from "./mensajes.js";
 
+const POR_PAGINA = 6;
 let paginaActual = 1;
 let ultimaPagina = 1;
+let cantidadEnPagina = 0;
+let numeroCarga = 0;
 let iniciado = false;
-let idCarga = 0;
-let elementos = null;
 
 // YA IMPLEMENTADO — "2026-09-15" -> "15 set 2026"
 export const formatearFecha = (iso) =>
   new Date(`${iso}T00:00:00`).toLocaleDateString("es-CR", { day: "numeric", month: "short", year: "numeric" });
 
-function buscarElementos() {
-  return {
-    lista: document.querySelector('#lista-equipos'),
-    plantilla: document.querySelector('#tpl-equipo'),
-    resumen: document.querySelector('#resumen'),
-    pagina: document.querySelector('#pagina-actual'),
-    anterior: document.querySelector('#anterior'),
-    siguiente: document.querySelector('#siguiente'),
-    mensaje: document.querySelector('#mensaje-listado'),
-    busqueda: document.querySelector('#busqueda'),
-    estado: document.querySelector('#filtro-estado'),
-  };
-}
+function dibujarEquipos(equipos) {
+  const lista = document.querySelector("#lista-equipos");
+  const plantilla = document.querySelector("#tpl-equipo");
+  const contenido = document.createDocumentFragment();
 
-function texto(nodo, valor) {
-  if (nodo) nodo.textContent = String(valor ?? '');
-}
-
-function dibujar(equipos) {
-  const { lista, plantilla } = elementos;
-  lista.replaceChildren();
   for (const equipo of equipos) {
-    const fragmento = plantilla.content.cloneNode(true);
-    const tarjeta = fragmento.querySelector('[data-equipo]') || fragmento.firstElementChild;
-    if (!tarjeta) continue;
+    const tarjeta = plantilla.content.cloneNode(true).querySelector(".tarjeta");
     tarjeta.dataset.id = String(equipo.id);
     tarjeta.dataset.estado = equipo.estado;
-    texto(tarjeta.querySelector('[data-codigo]'), equipo.codigo);
-    texto(tarjeta.querySelector('[data-nombre]'), equipo.nombre);
-    texto(tarjeta.querySelector('[data-categoria]'), equipo.categoria?.nombre ?? 'Sin categoría');
-    texto(tarjeta.querySelector('[data-estado-texto]'), equipo.estado);
-    texto(tarjeta.querySelector('[data-fecha]'), equipo.fecha_adquisicion);
-    const boton = tarjeta.querySelector('[data-eliminar]');
-    if (boton) boton.dataset.id = String(equipo.id);
-    lista.append(fragmento);
+    tarjeta.querySelector(".codigo").textContent = equipo.codigo;
+    tarjeta.querySelector(".nombre").textContent = equipo.nombre;
+    tarjeta.querySelector(".categoria").textContent = equipo.categoria?.nombre ?? "Sin categoría";
+    tarjeta.querySelector(".fecha").textContent = formatearFecha(equipo.fecha_adquisicion);
+
+    const estado = tarjeta.querySelector(".estado");
+    estado.textContent = equipo.estado;
+    estado.dataset.estado = equipo.estado;
+    contenido.append(tarjeta);
   }
-  if (!equipos.length) texto(elementos.mensaje, 'No hay equipos para mostrar.');
+
+  if (equipos.length === 0) {
+    const vacio = document.createElement("li");
+    vacio.className = "vacio";
+    vacio.textContent = "No hay equipos para mostrar.";
+    contenido.append(vacio);
+  }
+
+  lista.replaceChildren(contenido);
+  cantidadEnPagina = equipos.length;
 }
 
-export async function cargarListado(pagina = paginaActual) {
-  if (!elementos) elementos = buscarElementos();
-  if (!elementos.lista || !elementos.plantilla) return;
-  const carga = ++idCarga;
-  elementos.lista.setAttribute('aria-busy', 'true');
-  texto(elementos.mensaje, 'Cargando equipos…');
+function actualizarPaginacion(meta, equipos) {
+  paginaActual = Number(meta.current_page ?? paginaActual);
+  ultimaPagina = Math.max(1, Number(meta.last_page ?? 1));
+  const total = Number(meta.total ?? 0);
+  const desde = total === 0 ? 0 : Number(meta.from ?? (paginaActual - 1) * POR_PAGINA + 1);
+  const hasta = total === 0 ? 0 : Number(meta.to ?? desde + equipos.length - 1);
+
+  document.querySelector("#resumen").textContent = `Mostrando ${desde}–${hasta} de ${total}`;
+  document.querySelector("#pagina-actual").textContent = `Página ${paginaActual} de ${ultimaPagina}`;
+  document.querySelector("#btn-anterior").disabled = paginaActual <= 1;
+  document.querySelector("#btn-siguiente").disabled = paginaActual >= ultimaPagina;
+}
+
+export async function cargarPagina(pagina = paginaActual) {
+  const lista = document.querySelector("#lista-equipos");
+  const anterior = document.querySelector("#btn-anterior");
+  const siguiente = document.querySelector("#btn-siguiente");
+  const identificador = ++numeroCarga;
+
+  lista.setAttribute("aria-busy", "true");
+  anterior.disabled = true;
+  siguiente.disabled = true;
+  document.querySelector("#resumen").textContent = "Cargando equipos…";
+
   try {
-    const respuesta = await listarEquipos({
-      pagina, porPagina: 6,
-      q: elementos.busqueda?.value || '',
-      estado: elementos.estado?.value || '',
-    });
-    if (carga !== idCarga) return;
-    const equipos = respuesta.data || [];
-    const meta = respuesta.meta || {};
-    paginaActual = Number(meta.current_page || pagina);
-    ultimaPagina = Math.max(1, Number(meta.last_page || 1));
-    dibujar(equipos);
-    const total = Number(meta.total || 0);
-    const inicio = total ? Number(meta.from || (paginaActual - 1) * 6 + 1) : 0;
-    const fin = total ? Number(meta.to || inicio + equipos.length - 1) : 0;
-    texto(elementos.resumen, `Mostrando ${inicio}–${fin} de ${total}`);
-    texto(elementos.pagina, `Página ${paginaActual} de ${ultimaPagina}`);
-    if (elementos.anterior) elementos.anterior.disabled = paginaActual <= 1;
-    if (elementos.siguiente) elementos.siguiente.disabled = paginaActual >= ultimaPagina;
-    if (equipos.length) texto(elementos.mensaje, '');
+    const respuesta = await listarEquipos(pagina, POR_PAGINA);
+    if (identificador !== numeroCarga) return;
+
+    const equipos = respuesta.data ?? [];
+    const meta = respuesta.meta ?? {};
+    const ultima = Math.max(1, Number(meta.last_page ?? 1));
+
+    // Una eliminación concurrente puede dejar una página fuera de rango.
+    if (equipos.length === 0 && pagina > ultima && pagina > 1) {
+      await cargarPagina(ultima);
+      return;
+    }
+
+    dibujarEquipos(equipos);
+    actualizarPaginacion(meta, equipos);
   } catch (error) {
-    if (carga === idCarga) texto(elementos.mensaje, error.message);
+    if (identificador !== numeroCarga) return;
+    document.querySelector("#resumen").textContent = "No se pudo cargar el inventario.";
+    document.querySelector("#pagina-actual").textContent = "";
+    mostrarMensaje("error", error.message);
   } finally {
-    if (carga === idCarga) elementos.lista.setAttribute('aria-busy', 'false');
+    if (identificador === numeroCarga) {
+      lista.setAttribute("aria-busy", "false");
+      anterior.disabled = paginaActual <= 1;
+      siguiente.disabled = paginaActual >= ultimaPagina;
+    }
   }
 }
 
-async function manejarEliminar(evento) {
-  const boton = evento.target.closest('[data-eliminar]');
-  if (!boton || !elementos.lista.contains(boton)) return;
-  const id = boton.dataset.id || boton.closest('[data-id]')?.dataset.id;
-  if (!id || !window.confirm('¿Desea eliminar este equipo?')) return;
+async function manejarEliminacion(evento) {
+  const boton = evento.target.closest(".btn-eliminar");
+  const lista = document.querySelector("#lista-equipos");
+  if (!boton || !lista.contains(boton)) return;
+
+  const id = boton.closest(".tarjeta")?.dataset.id;
+  if (!id || !window.confirm("¿Desea eliminar este equipo?")) return;
+
   boton.disabled = true;
-  texto(elementos.mensaje, 'Eliminando equipo…');
   try {
     await eliminarEquipo(id);
-    await cargarListado(paginaActual);
-    if (!elementos.lista.children.length && paginaActual > 1) {
-      await cargarListado(paginaActual - 1);
-    }
+    mostrarMensaje("exito", "Equipo eliminado correctamente.");
+    const destino = paginaActual > 1 && cantidadEnPagina === 1 ? paginaActual - 1 : paginaActual;
+    await cargarPagina(destino);
   } catch (error) {
-    texto(elementos.mensaje, error instanceof ErrorApi && error.status === 409
-      ? error.message : `No se pudo eliminar: ${error.message}`);
+    if (error instanceof ErrorApi && error.status === 409) {
+      mostrarMensaje("error", error.datos.mensaje ?? error.message);
+    } else {
+      mostrarMensaje("error", error.message);
+    }
   } finally {
     boton.disabled = false;
   }
@@ -106,23 +125,15 @@ async function manejarEliminar(evento) {
 
 export function iniciarListado() {
   if (iniciado) return;
-  elementos = buscarElementos();
-  if (!elementos.lista || !elementos.plantilla) return;
   iniciado = true;
-  elementos.lista.addEventListener('click', manejarEliminar);
-  elementos.anterior?.addEventListener('click', () => {
-    if (paginaActual > 1) cargarListado(paginaActual - 1);
-  });
-  elementos.siguiente?.addEventListener('click', () => {
-    if (paginaActual < ultimaPagina) cargarListado(paginaActual + 1);
-  });
-  let reloj;
-  elementos.busqueda?.addEventListener('input', () => {
-    clearTimeout(reloj);
-    reloj = setTimeout(() => cargarListado(1), 250);
-  });
-  elementos.estado?.addEventListener('change', () => cargarListado(1));
-  cargarListado(1);
-}
 
-export default iniciarListado;
+  document.querySelector("#lista-equipos").addEventListener("click", manejarEliminacion);
+  document.querySelector("#btn-anterior").addEventListener("click", () => {
+    if (paginaActual > 1) cargarPagina(paginaActual - 1);
+  });
+  document.querySelector("#btn-siguiente").addEventListener("click", () => {
+    if (paginaActual < ultimaPagina) cargarPagina(paginaActual + 1);
+  });
+
+  cargarPagina(1);
+}
