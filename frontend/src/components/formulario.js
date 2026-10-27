@@ -1,29 +1,75 @@
-import { crearEquipo, listarCategorias } from "../modules/equipos.js";
-import { mostrarMensaje } from "./mensajes.js";
+import { crearEquipo, obtenerCategorias } from '../modules/equipos.js';
+import { ErrorApi } from '../modules/api.js';
+import { cargarListado } from './listado.js';
 
-const $form = document.querySelector("#form-equipo");
-const $selectCategoria = document.querySelector("#categoria_id");
-const $btnGuardar = document.querySelector("#btn-guardar");
+let iniciado = false;
 
-/**
- * TODO [F3] Formulario de registro de equipos.
- *
- * iniciarFormulario({ alGuardar }):
- *  1. Llene el <select id="categoria_id"> con listarCategorias()
- *     (cree cada <option> con createElement, value = id, texto = nombre).
- *  2. Al enviar el formulario (submit):
- *     - Evite el envío tradicional.
- *     - Limpie los errores anteriores: textContent de [data-error] y aria-invalid de los campos.
- *     - Construya el objeto con FormData. categoria_id y costo_interno deben ir como números.
- *     - Deshabilite #btn-guardar y cambie su texto a "Guardando…" mientras espera.
- *     - Llame a crearEquipo(datos).
- *     - Éxito: limpie el formulario, mostrarMensaje("exito", "Equipo <codigo> registrado.")
- *              y llame a alGuardar().
- *     - 422: por cada campo de error.datos.errors, escriba el PRIMER mensaje en
- *            el <p data-error="<campo>"> y marque el campo con aria-invalid="true".
- *     - Otro error: mostrarMensaje("error", ...).
- *     - Siempre (finally): rehabilite el botón y restaure su texto.
- */
-export const iniciarFormulario = ({ alGuardar }) => {
-  // TODO
-};
+function limpiarErrores(formulario) {
+  formulario.querySelectorAll('[data-error]').forEach(nodo => { nodo.textContent = ''; });
+  formulario.querySelectorAll('[aria-invalid]').forEach(campo => {
+    campo.removeAttribute('aria-invalid');
+  });
+}
+
+function mostrarErrores(formulario, errores) {
+  for (const [nombre, mensajes] of Object.entries(errores)) {
+    const campo = formulario.elements.namedItem(nombre);
+    const parrafo = formulario.querySelector(`[data-error="${nombre}"]`);
+    if (campo?.setAttribute) campo.setAttribute('aria-invalid', 'true');
+    if (parrafo) parrafo.textContent = Array.isArray(mensajes) ? mensajes.join(' ') : String(mensajes);
+  }
+}
+
+async function cargarCategorias(formulario) {
+  const select = formulario.elements.namedItem('categoria_id');
+  if (!select) return;
+  try {
+    const respuesta = await obtenerCategorias();
+    select.replaceChildren(new Option('Seleccione una categoría', ''));
+    for (const categoria of respuesta.data || []) {
+      select.append(new Option(categoria.nombre, String(categoria.id)));
+    }
+  } catch (error) {
+    const mensaje = document.querySelector('#mensaje-formulario');
+    if (mensaje) mensaje.textContent = `No se cargaron las categorías: ${error.message}`;
+  }
+}
+
+export function iniciarFormulario() {
+  if (iniciado) return;
+  const formulario = document.querySelector('#form-equipo');
+  if (!formulario) return;
+  iniciado = true;
+  const boton = formulario.querySelector('[type="submit"]');
+  const mensaje = document.querySelector('#mensaje-formulario');
+  cargarCategorias(formulario);
+
+  formulario.addEventListener('submit', async evento => {
+    evento.preventDefault();
+    limpiarErrores(formulario);
+    if (mensaje) mensaje.textContent = '';
+    const datos = Object.fromEntries(new FormData(formulario).entries());
+    datos.categoria_id = Number(datos.categoria_id);
+    datos.costo_interno = Number(datos.costo_interno);
+    if (!datos.estado) delete datos.estado;
+    const etiqueta = boton?.textContent;
+    if (boton) { boton.disabled = true; boton.textContent = 'Guardando…'; }
+    try {
+      await crearEquipo(datos);
+      formulario.reset();
+      if (mensaje) mensaje.textContent = 'Equipo guardado correctamente.';
+      await cargarListado(1);
+    } catch (error) {
+      if (error instanceof ErrorApi && error.status === 422) {
+        mostrarErrores(formulario, error.errores);
+        if (mensaje) mensaje.textContent = 'Revise los campos señalados.';
+      } else if (mensaje) {
+        mensaje.textContent = error.message;
+      }
+    } finally {
+      if (boton) { boton.disabled = false; boton.textContent = etiqueta; }
+    }
+  });
+}
+
+export default iniciarFormulario;

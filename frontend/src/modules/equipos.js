@@ -1,26 +1,23 @@
-import { request } from "./api.js";
+import { request } from './api.js';
 
-// YA IMPLEMENTADO — ejemplo de uso de request()
-// Respuesta: { data: [ { id, nombre }, ... ] }
-export const listarCategorias = () => request("/categorias");
+export function listarEquipos({ pagina = 1, porPagina = 6, q = '', estado = '' } = {}) {
+  const parametros = new URLSearchParams({
+    page: String(pagina),
+    per_page: String(porPagina),
+  });
+  if (q.trim()) parametros.set('q', q.trim());
+  if (estado) parametros.set('estado', estado);
+  return request(`equipos?${parametros}`);
+}
 
-/**
- * TODO [F1] Funciones de acceso a la API de equipos.
- * Todas deben usar request(); ninguna llama a fetch.
- */
+export function obtenerCategorias() {
+  return request('categorias');
+}
 
-// GET /equipos?page=<pagina>&per_page=<porPagina>
-// Respuesta: { data: [...], links: {...}, meta: { current_page, last_page, from, to, total, ... } }
-export const listarEquipos = (pagina = 1, porPagina = 6) => {
-  // TODO
-};
+export function crearEquipo(datos) {
+  return request('equipos', { method: 'POST', body: datos });
+}
 
-// POST /equipos   -> 201 con el equipo creado | 422 con { message, errors }
-export const crearEquipo = (datos) => {
-  // TODO
-};
-
-// DELETE /equipos/<id>   -> 204 | 404 | 409 con { mensaje, codigo }
-export const eliminarEquipo = (id) => {
-  // TODO
-};
+export function eliminarEquipo(id) {
+  return request(`equipos/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
