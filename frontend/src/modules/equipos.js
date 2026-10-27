@@ -1,23 +1,26 @@
-import { request } from './api.js';
+import { request } from "./api.js";
 
-export function listarEquipos({ pagina = 1, porPagina = 6, q = '', estado = '' } = {}) {
+// La firma (pagina, porPagina) se mantiene para los componentes del proyecto base.
+export function listarEquipos(pagina = 1, porPagina = 6, filtros = {}) {
   const parametros = new URLSearchParams({
     page: String(pagina),
     per_page: String(porPagina),
   });
-  if (q.trim()) parametros.set('q', q.trim());
-  if (estado) parametros.set('estado', estado);
-  return request(`equipos?${parametros}`);
+
+  if (filtros.q?.trim()) parametros.set("q", filtros.q.trim());
+  if (filtros.estado) parametros.set("estado", filtros.estado);
+
+  return request(`equipos?${parametros.toString()}`);
 }
 
-export function obtenerCategorias() {
-  return request('categorias');
+export function listarCategorias() {
+  return request("categorias");
 }
 
 export function crearEquipo(datos) {
-  return request('equipos', { method: 'POST', body: datos });
+  return request("equipos", { method: "POST", body: datos });
 }
 
 export function eliminarEquipo(id) {
-  return request(`equipos/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  return request(`equipos/${encodeURIComponent(id)}`, { method: "DELETE" });
 }

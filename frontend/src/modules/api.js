@@ -1,64 +1,59 @@
-const URL_BASE = (import.meta.env?.VITE_API_URL || 'http://localhost:8000/api').replace(/\/+$/, '');
-const CLAVES_TOKEN = ['auth_token', 'token'];
+import { BASE_URL, TIEMPO_MAXIMO_MS } from "./config.js";
+import { obtenerToken, olvidarSesion } from "./auth.js";
+import { ErrorApi } from "./errores.js";
 
-export class ErrorApi extends Error {
-  constructor(mensaje, status, errores = {}) {
-    super(mensaje);
-    this.name = 'ErrorApi';
-    this.status = status;
-    this.estado = status;
-    this.errores = errores;
-  }
-}
-
+// Todas las operaciones protegidas utilizan este mismo cliente HTTP.
 export async function request(ruta, opciones = {}) {
-  const token = CLAVES_TOKEN.map(clave => localStorage.getItem(clave)).find(Boolean);
   const controlador = new AbortController();
-  const { signal: señalExterna, headers: encabezados = {}, body, ...resto } = opciones;
-  const alCancelar = () => controlador.abort();
-  if (señalExterna?.aborted) controlador.abort();
-  else señalExterna?.addEventListener('abort', alCancelar, { once: true });
-  const tiempo = setTimeout(() => controlador.abort(), 8000);
-  const esFormulario = typeof FormData !== 'undefined' && body instanceof FormData;
+  const { signal: señalExterna, headers = {}, body, ...configuracion } = opciones;
+  const cancelar = () => controlador.abort();
+
+  if (señalExterna?.aborted) {
+    controlador.abort();
+  } else {
+    señalExterna?.addEventListener("abort", cancelar, { once: true });
+  }
+
+  const limite = setTimeout(() => controlador.abort(), TIEMPO_MAXIMO_MS);
+  const token = obtenerToken();
   const tieneCuerpo = body !== undefined;
+  const esFormulario = typeof FormData !== "undefined" && body instanceof FormData;
 
   try {
-    const respuesta = await fetch(`${URL_BASE}/${ruta.replace(/^\/+/, '')}`, {
-      ...resto,
+    const respuesta = await fetch(`${BASE_URL.replace(/\/+$/, "")}/${ruta.replace(/^\/+/, "")}`, {
+      ...configuracion,
       headers: {
-        Accept: 'application/json',
-        ...(tieneCuerpo && !esFormulario ? { 'Content-Type': 'application/json' } : {}),
+        Accept: "application/json",
+        ...(tieneCuerpo && !esFormulario ? { "Content-Type": "application/json" } : {}),
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        ...encabezados,
+        ...headers,
       },
-      ...(tieneCuerpo ? { body: esFormulario || typeof body === 'string' ? body : JSON.stringify(body) } : {}),
+      ...(tieneCuerpo ? { body: esFormulario || typeof body === "string" ? body : JSON.stringify(body) } : {}),
       signal: controlador.signal,
     });
 
     if (respuesta.status === 204) return null;
-    const tipo = respuesta.headers.get('content-type') || '';
-    const datos = tipo.includes('application/json') ? await respuesta.json() : null;
+
+    const tipo = respuesta.headers.get("content-type") ?? "";
+    const datos = tipo.includes("json") ? await respuesta.json() : {};
 
     if (!respuesta.ok) {
       if (respuesta.status === 401) {
-        CLAVES_TOKEN.forEach(clave => localStorage.removeItem(clave));
+        olvidarSesion();
         window.location.reload();
       }
-      throw new ErrorApi(
-        datos?.mensaje || datos?.message || `Error HTTP ${respuesta.status}`,
-        respuesta.status,
-        datos?.errors || {},
-      );
+      throw new ErrorApi(respuesta.status, datos);
     }
+
     return datos;
   } catch (error) {
     if (error instanceof ErrorApi) throw error;
-    if (error.name === 'AbortError') {
-      throw new ErrorApi('La petición fue cancelada o superó los 8 segundos.', 0);
+    if (error?.name === "AbortError") {
+      throw new Error("La petición fue cancelada o superó los 8 segundos.");
     }
-    throw new ErrorApi('No fue posible conectar con la API.', 0);
+    throw new Error("No fue posible conectar con la API.");
   } finally {
-    clearTimeout(tiempo);
-    señalExterna?.removeEventListener('abort', alCancelar);
+    clearTimeout(limite);
+    señalExterna?.removeEventListener("abort", cancelar);
   }
 }
